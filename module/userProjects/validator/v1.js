@@ -33,6 +33,13 @@ module.exports = (req) => {
             req.checkBody("data").exists().withMessage("data is required");
             req.checkBody("data.transactionId").exists().withMessage("transactionId is required");
             req.checkBody("data.osid").exists().withMessage("osid is required");
+        },
+        listUserProjects:function(){
+            req.checkQuery('stats')
+            .optional()
+            .isIn(['true','false'])
+            .withMessage("The 'stats' parameter must be either 'true' or 'false' ");
+         
         }
     }
 

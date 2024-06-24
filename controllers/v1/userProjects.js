@@ -8,6 +8,7 @@
 // Dependencies
 const csv = require('csvtojson');
 const userProjectsHelper = require(MODULES_BASE_PATH + "/userProjects/helper");
+const projectsHelper = require(MODULES_BASE_PATH + "/userProjects/helper");
 
  /**
     * UserProjects
@@ -1125,5 +1126,33 @@ module.exports = class UserProjects extends Abstract {
                 }
         })
     }
+    async overview(req) {
+        return new Promise(async (resolve, reject) => {
+            try {
+
+                let stats = req.query.stats;
+                if (stats !== undefined) {
+                    stats = UTILS.convertStringToBoolean(stats);
+                }
+
+                let listOfCreatedProjects = await userProjectsHelper.userProjectOverview({
+                    userId:req.userDetails.userInformation.userId
+                },['title','description','_id','userId','isAPrivateProgram','createdBy','status','createdAt','deleted'],stats)
+                
+                return resolve({
+                    message: 'success',
+                    result: listOfCreatedProjects
+                });
+                
+            } catch (error) {
+                return reject({
+                    status: error.status || HTTP_STATUS_CODE.internal_server_error.status,
+                    message: error.message || HTTP_STATUS_CODE.internal_server_error.message,
+                    errorObject: error
+                });
+            }
+    }) 
+    }
+    
 
 };

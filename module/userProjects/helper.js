@@ -1256,6 +1256,7 @@ module.exports = class UserProjectsHelper {
     */
 
    static detailsV2( projectId,solutionId,userId,userToken,bodyData,appName = "",appVersion = "",templateId = "" ) {
+    
     return new Promise(async (resolve, reject) => {
         try {
             
@@ -1563,7 +1564,7 @@ module.exports = class UserProjectsHelper {
                             userToken,
                             bodyData.submissions.observationId
                         );
-                        console.log(observationDetails)
+                        
 
                         if( observationDetails.data &&
                             Object.keys(observationDetails.data).length > 0 && 
@@ -2499,7 +2500,6 @@ module.exports = class UserProjectsHelper {
     static importFromLibrary(projectTemplateId, requestedData, userToken, userId, isATargetedSolution = "" ) {
         return new Promise(async (resolve, reject) => {
             try {
-
                 isATargetedSolution = UTILS.convertStringToBoolean(isATargetedSolution);
 
                 let libraryProjects =
@@ -3272,6 +3272,47 @@ module.exports = class UserProjectsHelper {
             }
         })
     }
+
+    /**
+     * Fetches project details based on the provided query.
+     * @method
+     * @name details
+     * @param {Object} args - Query object for fetching project details.
+     * @returns {Array} - A promise that resolves to an array of project details matching the query.
+     */
+    static userProjectOverview(args,fields='all',stats) {
+          return new Promise(async (resolve, reject) => {
+            try {
+              const projectIdQuery = {
+                ...args,
+              };
+
+              let fieldarray = [];
+
+              if (fields != "all") {
+                fields.forEach((field) => {
+                  fieldarray.push(field);
+                });
+              }
+
+              if (stats == true) {
+                let count = await projectQueries.countDocuments(projectIdQuery);
+
+                resolve(count);
+              }
+
+              let projects = await projectQueries.projectDocument(
+                projectIdQuery,
+                fieldarray
+              );
+
+              resolve(projects);
+            } catch (error) {
+              reject(error);
+            }
+          });
+    }
+    
 
 
 };
