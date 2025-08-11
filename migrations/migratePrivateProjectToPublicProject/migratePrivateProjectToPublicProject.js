@@ -259,7 +259,13 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
 })();
 
 
-
+/**
+ * check project eligibility for certificate.
+ * @method
+ * @name checkCertificateEligibility 
+ * @param {Object} data - project data for certificate creation data.
+ * @returns {Boolean} certificate eligibilty status.
+*/
 async function checkCertificateEligibility(projectData) {
     try {
         let eligible = false;
