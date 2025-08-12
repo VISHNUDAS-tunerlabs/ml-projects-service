@@ -28,12 +28,19 @@ Prepare the `input.json` file in the same directory with the following structure
   "solutionIds": [
     "64a1234567890abcdef1234",
     "64b9876543210abcdef5678"
-  ]
+  ],
+  "projectserviceApiDomain": "http://localhost", 
+  "skipSolutionUpdate": false,
+  "projectIds": ["66bf60377887f3a3bbb60088"]
 }
 ```
 
 - **userToken** → Mandatory. If not provided, the script will not execute.  
 - **solutionIds** → List of public parent solution IDs to migrate projects to.
+- **projectserviceApiDomain** → Mandatory. If not provided, the script will not execute.  
+- **skipSolutionUpdate** → Optional. If not provided or set to false , script will update solution info and call reIssue of certificate and if it true certificate reIssue will happen to projectIds mentioned .  
+- **projectIds** → If skipSolutionUpdate is set to true provide projectids to re generate the certificate.  
+
 
 ---
 
@@ -47,7 +54,7 @@ node migratePrivateProjectToPublicProject.js
 
 ---
 
-#### Validation
+#### Validation - The data changes made can be found inside the output folder with file name mentioned (time stamp will be appended)
 
 - **updatedProjects.json** → Contains details of successfully updated projects and any duplicate error cases.  
 - **certificateReIssueResult.json** → Contains the result of certificate re-issue calls per project.  

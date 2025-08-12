@@ -1,4 +1,7 @@
 {
 	"userToken": "project-service-user-token",
-	"solutionIds": ["project-service-solution-id-1", "project-service-solution-id-2"]
+	"solutionIds": ["project-service-solution-id-1", "project-service-solution-id-2"],
+    "projectserviceApiDomain": "http://localhost",
+	"skipSolutionUpdate": false,
+	"projectIds": ["projectId"]
 }

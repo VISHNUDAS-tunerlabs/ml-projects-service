@@ -12,14 +12,23 @@ const { MongoClient, ObjectId } = require('mongodb');
 const rootPath = path.join(__dirname, '../../');
 require('dotenv').config({ path: rootPath + '/.env' });
 const request = require('request');
-
 const mongoUrl = process.env.MONGODB_URL;
 const dbName = mongoUrl.split("/").pop();
 const url = mongoUrl.split(dbName)[0];
 
 let db;
 let connection;
+let updatedProjectIds= []
+ let certificateResults = []
+const chunkSize = 10;
 
+// Create output folder if not exists
+const outputDir = path.join(__dirname, 'output');
+
+if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+}
+const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
 // Read input.json
 const inputPath = path.join(__dirname, 'input.json');
@@ -40,6 +49,18 @@ if (!Array.isArray(inputData.solutionIds) || inputData.solutionIds.length === 0)
     console.error("❌ solutionIds array is missing or empty in input.json.");
     process.exit(1);
 }
+
+if (!inputData.projectserviceApiDomain) {
+    console.error("❌ projectserviceApiDomain is missing in input.json and APPLICATION_PORT is not set. Script cannot proceed.");
+    process.exit(1);
+}
+
+if (inputData.skipSolutionUpdate) {
+    updatedProjectIds = Array.isArray(inputData.projectIds) && inputData.projectIds.length > 0 
+        ? inputData.projectIds 
+        : [];
+}
+
 const userToken = inputData.userToken.trim();
 // Read solution IDs from input.json
 const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
@@ -49,203 +70,229 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
   try {
     connection = await MongoClient.connect(url, { useNewUrlParser: true, useUnifiedTopology: true });
      db = connection.db(dbName);
-    
-    // Convert input strings to ObjectId
-    const parentSolutionObjectIds = inputParentSolutionIds.map(id => ObjectId(id));
 
-    // 1. Fetch public parent solutions where isAPrivateProgram: false
-    const publicParentSolutions = await db.collection('solutions').find({
-      _id: { $in: parentSolutionObjectIds },
-      isAPrivateProgram: false
-    }).toArray();
-    
-    if (publicParentSolutions.length === 0) {
-      console.log("No public parent solutions found for the given IDs.");
-      return;
-    }
+    // skip solution and program update only perform certificate reIssue
+    if (!inputData.skipSolutionUpdate && inputData.skipSolutionUpdate !== true) {
+        // Convert input strings to ObjectId
+        const parentSolutionObjectIds = inputParentSolutionIds.map(id => ObjectId(id));
 
-    // Map for quick lookup by _id string
-    const publicParentMap = {};
-    publicParentSolutions.forEach(sol => {
-      publicParentMap[sol._id.toString()] = sol;
-    });
-    
-    // 2. Find all private child solutions with parentSolutionId in above IDs and isAPrivateProgram: true
-    const privateSolutions = await db.collection('solutions').find({
-      parentSolutionId: { $in: parentSolutionObjectIds },
-      isAPrivateProgram: true
-    }).project({ _id: 1, parentSolutionId: 1 }).toArray();
-
-    if (privateSolutions.length === 0) {
-      console.log("No private child solutions found for the given parent solutions.");
-      return;
-    }
-
-    // Group private solutions by their parentSolutionId for mapping updates later
-    const privateSolutionIds = privateSolutions.map(sol => sol._id);
-    const privateSolutionParentMap = {};
-    privateSolutions.forEach(sol => {
-      const parentIdStr = sol.parentSolutionId.toString();
-      if (!privateSolutionParentMap[parentIdStr]) privateSolutionParentMap[parentIdStr] = [];
-      privateSolutionParentMap[parentIdStr].push(sol._id);
-    });
-    console.log("privateSolutionIds", privateSolutionIds);
-    // 3. Fetch projects where:
-    // solutionId in privateSolutionIds
-    // isAPrivateProgram: true
-    // createdAt > 2025-04-01T00:00:00Z
-    const dateThreshold = new Date('2025-04-01T00:00:00Z');
-
-    // We'll process projects in chunks of 10 to avoid memory issues
-    const chunkSize = 10;
-
-    // Find all projects matching criteria (only _id + solutionId for batching)
-    const projectsToUpdate = await db.collection('projects').find({
-      solutionId: { $in: privateSolutionIds },
-      isAPrivateProgram: true,
-      createdAt: { $gt: dateThreshold }
-    }).project({ _id: 1, solutionId: 1 }).toArray();
-
-    if (projectsToUpdate.length === 0) {
-      console.log("No projects found to update for the given criteria.");
-      return;
-    }
-    console.log('projectsToUpdate',projectsToUpdate)
-    const chunks = _.chunk(projectsToUpdate, chunkSize);
-    let updatedProjectIds = [];
-    let duplicateErrorProjectIds = [];
-
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex];
-
-      // Fetch full project documents for this chunk
-      const projectIdsInChunk = chunk.map(p => p._id);
-      const fullProjects = await db.collection('projects').find({
-        _id: { $in: projectIdsInChunk }
-      }).toArray();
-
-      for (const project of fullProjects) {
-        const solIdStr = project.solutionId.toString();
-
-        // Find which parent solution this private solution belongs to
-        let parentSolutionIdStr = null;
-        for (const [parentIdStr, solIds] of Object.entries(privateSolutionParentMap)) {
-          if (solIds.find(id => id.equals(project.solutionId))) {
-            parentSolutionIdStr = parentIdStr;
-            break;
-          }
-        }
-        if (!parentSolutionIdStr) {
-          console.warn(`Parent solution not found for project solutionId ${solIdStr}`);
-          continue;
+        // 1. Fetch public parent solutions where isAPrivateProgram: false
+        const publicParentSolutions = await db.collection('solutions').find({
+        _id: { $in: parentSolutionObjectIds },
+        isAPrivateProgram: false
+        }).toArray();
+        
+        if (publicParentSolutions.length === 0) {
+        console.log("No public parent solutions found for the given IDs.");
+        return;
         }
 
-        const parentSolution = publicParentMap[parentSolutionIdStr];
-        if (!parentSolution) {
-          console.warn(`Public parent solution details not found for id ${parentSolutionIdStr}`);
-          continue;
+        // Map for quick lookup by _id string
+        const publicParentMap = {};
+        publicParentSolutions.forEach(sol => {
+        publicParentMap[sol._id.toString()] = sol;
+        });
+        
+        // 2. Find all private child solutions with parentSolutionId in above IDs and isAPrivateProgram: true
+        const privateSolutions = await db.collection('solutions').find({
+        parentSolutionId: { $in: parentSolutionObjectIds },
+        isAPrivateProgram: true
+        }).project({ _id: 1, parentSolutionId: 1 }).toArray();
+
+        if (privateSolutions.length === 0) {
+        console.log("No private child solutions found for the given parent solutions.");
+        return;
         }
-        try {
-                const updateDoc = {
-                $set: {
-                    solutionId: parentSolution._id,
-                    solutionExternalId: parentSolution.externalId,
-                    programId: parentSolution.programId,
-                    programExternalId: parentSolution.programExternalId,
-                    solutionInformation: {
-                    name: parentSolution.name,
-                    externalId: parentSolution.externalId,
-                    description: parentSolution.description || "",
-                    _id: parentSolution._id,
-                    certificateTemplateId: parentSolution.certificateTemplateId || null
-                    },
-                    programInformation: {
-                    _id: parentSolution.programId,
-                    name: parentSolution.programName || "",
-                    externalId: parentSolution.programExternalId || "",
-                    description: parentSolution.programDescription || "",
-                    isAPrivateProgram: false
-                    },
-                    isAPrivateProgram: false
+
+        // Group private solutions by their parentSolutionId for mapping updates later
+        const privateSolutionIds = privateSolutions.map(sol => sol._id);
+        const privateSolutionParentMap = {};
+        privateSolutions.forEach(sol => {
+        const parentIdStr = sol.parentSolutionId.toString();
+        if (!privateSolutionParentMap[parentIdStr]) privateSolutionParentMap[parentIdStr] = [];
+        privateSolutionParentMap[parentIdStr].push(sol._id);
+        });
+        console.log("privateSolutionIds", privateSolutionIds);
+        // 3. Fetch projects where:
+        // solutionId in privateSolutionIds
+        // isAPrivateProgram: true
+        // createdAt > 2025-04-01T00:00:00Z
+        const dateThreshold = new Date('2025-04-01T00:00:00Z');
+
+        // We'll process projects in chunks of 10 to avoid memory issues
+        
+
+        // Find all projects matching criteria (only _id + solutionId for batching)
+        const projectsToUpdate = await db.collection('projects').find({
+            solutionId: { $in: privateSolutionIds },
+            isAPrivateProgram: true,
+            createdAt: { $gt: dateThreshold }
+        }).project({ _id: 1, solutionId: 1 }).toArray();
+
+        if (projectsToUpdate.length === 0) {
+            console.log("No projects found to update for the given criteria.");
+            return;
+        }
+        console.log('projectsToUpdate',projectsToUpdate)
+        const chunks = _.chunk(projectsToUpdate, chunkSize);
+        let duplicateErrorProjectIds = [];
+
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex];
+
+        // Fetch full project documents for this chunk
+        const projectIdsInChunk = chunk.map(p => p._id);
+        const fullProjects = await db.collection('projects').find({
+            _id: { $in: projectIdsInChunk }
+        }).toArray();
+
+        for (const project of fullProjects) {
+            const solIdStr = project.solutionId.toString();
+
+            // Find which parent solution this private solution belongs to
+            let parentSolutionIdStr = null;
+            for (const [parentIdStr, solIds] of Object.entries(privateSolutionParentMap)) {
+                    if (solIds.find(id => id.equals(project.solutionId))) {
+                    parentSolutionIdStr = parentIdStr;
+                    break;
                 }
-                };
-
-                await db.collection('projects').updateOne(
-                { _id: project._id },
-                updateDoc
-                );
-
-                updatedProjectIds.push(project._id.toString());
-
-            } catch (error) {
-                if (error.code === 11000) { // duplicate key
-                console.warn(`Duplicate key for project ${project._id}`);
-                duplicateErrorProjectIds.push(project._id.toString());
-                } else {
-                console.error(`Error updating project ${project._id}:`, error);
-                }
-                // Continue to the next project
+            }
+            if (!parentSolutionIdStr) {
+                console.warn(`Parent solution not found for project solutionId ${solIdStr}`);
                 continue;
             }
-      }
+
+
+            const parentSolution = publicParentMap[parentSolutionIdStr];
+            if (!parentSolution) {
+                console.warn(`Public parent solution details not found for id ${parentSolutionIdStr}`);
+                continue;
+            }
+            try {
+                    const updateDoc = {
+                    $set: {
+                        solutionId: parentSolution._id,
+                        solutionExternalId: parentSolution.externalId,
+                        programId: parentSolution.programId,
+                        programExternalId: parentSolution.programExternalId,
+                        solutionInformation: {
+                        name: parentSolution.name,
+                        externalId: parentSolution.externalId,
+                        description: parentSolution.description || "",
+                        _id: parentSolution._id,
+                        certificateTemplateId: parentSolution.certificateTemplateId || null
+                        },
+                        programInformation: {
+                        _id: parentSolution.programId,
+                        name: parentSolution.programName || "",
+                        externalId: parentSolution.programExternalId || "",
+                        description: parentSolution.programDescription || "",
+                        isAPrivateProgram: false
+                        },
+                        isAPrivateProgram: false
+                    }
+                    };
+
+                    await db.collection('projects').updateOne(
+                    { _id: project._id },
+                    updateDoc
+                    );
+
+                    updatedProjectIds.push(project._id.toString());
+
+                } catch (error) {
+                    if (error.code === 11000) { // duplicate key
+                    console.warn(`Duplicate key for project ${project._id}`);
+                    duplicateErrorProjectIds.push(project._id.toString());
+                    } else {
+                    console.error(`Error updating project ${project._id}:`, error);
+                    }
+                    // Continue to the next project
+                    continue;
+                }
+            }
+            // Write updated project IDs to a file
+            fs.writeFileSync(
+                path.join(outputDir, `updatedProjects_${timestamp}.json`),
+                JSON.stringify({ updatedProjectIds, duplicateErrorProjectIds }, null, 2)
+            );
+        }
+
     }
-
-    // Write updated project IDs to a file
-    fs.writeFileSync('updatedProjects.json', JSON.stringify({ updatedProjectIds,duplicateErrorProjectIds }, null, 2));
-
     
-    let certificateResults = [];
-    const certChunks = _.chunk(updatedProjectIds, chunkSize);
-
-    for (const certChunk of certChunks) {
-    const projectsData = await db.collection('projects').find({
-        _id: { $in: certChunk }
-    }).toArray();
     
-    for (const project of projectsData) {
-        // No certificate object or empty
-        if (!project.certificate || Object.keys(project.certificate).length === 0) {
-        certificateResults.push({
-            projectId: project._id,
-            message: "no certificate object found",
-            calledForCertificateReIssue: false
+    if (updatedProjectIds.length > 0) {
+        // Convert strings to ObjectIds if necessary
+        updatedProjectIds = updatedProjectIds.map(id => {
+            try {
+                return ObjectId.isValid(id) ? new ObjectId(id) : id;
+            } catch (err) {
+                console.error(`Invalid ID format: ${id}`);
+                return id; // Keep as-is if not valid
+            }
         });
-        continue;
-        }
 
-        // Check eligibility
-        const eligible = await checkCertificateEligibility(project);
        
-        if (!eligible) {
-        certificateResults.push({
-            projectId: project._id,
-            message: "not Eligible",
-            calledForCertificateReIssue: false
-        });
-        continue;
-        }
+        const certChunks = _.chunk(updatedProjectIds, chunkSize);
 
-        // Eligible → try re-issue
-        const reissueResult = await callCertificateReissue(project._id);
+        for (const certChunk of certChunks) {
+        const projectsData = await db.collection('projects').find({
+            _id: { $in: certChunk }
+        }).toArray();
        
-        if (reissueResult && reissueResult.success) {
-        certificateResults.push({
-            projectId: project._id,
-            message: "successfully called certificate reissue",
-            calledForCertificateReIssue: true
-        });
-        } else {
-        certificateResults.push({
-            projectId: project._id,
-            message: "reissue call failed",
-            calledForCertificateReIssue: false
-        });
-        }
-    }
-    }
+        for (const project of projectsData) {
+           
+            // No certificate object or empty
+            if (!project.certificate || Object.keys(project.certificate).length === 0) {
+            
+            certificateResults.push({
+                projectId: project._id,
+                message: "no certificate object found",
+                calledForCertificateReIssue: false
+            });
+            continue;
+            }
 
-    // Write updated project IDs to a file
-    fs.writeFileSync('certificateReIssueResult.json', JSON.stringify({ certificateResults }, null, 2));
+            // Check eligibility
+            let eligible = await checkCertificateEligibility(project);
+            
+            if (!eligible) {
+            certificateResults.push({
+                projectId: project._id,
+                message: "not Eligible",
+                calledForCertificateReIssue: false
+            });
+            continue;
+            }
+
+            // Eligible → try re-issue
+            const reissueResult = await callCertificateReissue(project._id);
+        
+            if (reissueResult && reissueResult.success) {
+            certificateResults.push({
+                projectId: project._id,
+                message: "successfully called certificate reissue",
+                calledForCertificateReIssue: true
+            });
+            } else {
+            certificateResults.push({
+                projectId: project._id,
+                message: "reissue call failed",
+                calledForCertificateReIssue: true
+            });
+            }
+        }
+        }
+        console.log("certificateResults",certificateResults)
+        // Write updated project IDs to a file
+      
+        fs.writeFileSync(
+            path.join(outputDir, `certificateReIssueResult_${timestamp}.json`),
+            JSON.stringify({ certificateResults }, null, 2)
+        );
+    }
+    
+    
     
     console.log("Migration completed successfully.");
 
@@ -605,7 +652,7 @@ const callCertificateReissue = function (projectId) {
     return new Promise(async (resolve, reject) => {
         try {
 
-            let reissueUrl = `http://localhost:${process.env.APPLICATION_PORT}/v1/userProjects/certificateReIssue/${projectId}`;
+            let reissueUrl = `${inputData.projectserviceApiDomain}:${process.env.APPLICATION_PORT}/v1/userProjects/certificateReIssue/${projectId}`;
             console.log(`Calling API: ${reissueUrl} for project ${projectId}`);
             const options = {
                 headers: {
