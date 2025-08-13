@@ -12,6 +12,7 @@ const { MongoClient, ObjectId } = require('mongodb');
 const rootPath = path.join(__dirname, '../../');
 require('dotenv').config({ path: rootPath + '/.env' });
 const request = require('request');
+const { log } = require("console");
 const mongoUrl = process.env.MONGODB_URL;
 const dbName = mongoUrl.split("/").pop();
 const url = mongoUrl.split(dbName)[0];
@@ -21,6 +22,25 @@ let connection;
 let updatedProjectIds= []
  let certificateResults = []
 const chunkSize = 10;
+// Allowed teacher subtypes
+const ALLOWED_SUBTYPES = [
+  "TEACHER-PRECLASS2",
+  "TEACHER-CLASS1-5",
+  "TEACHER-CLASS3-5",
+  "TEACHER-CLASS6-8",
+  "TEACHER-CLASS6-10",
+  "TEACHER-CLASS9-10",
+  "TEACHER-CLASS11-12",
+  "TEACHER-SE",
+  "TEACHER-PET",
+  "TEACHER-AMP",
+  "TEACHER-COUNSELLOR",
+  "TEACHER-WARDEN",
+  "TEACHER-ANG-WORKER",
+  "TEACHER-ANG-HELPER",
+  "TEACHER-LIBRARIAN",
+  "TEACHER-LABTECHIT"
+];
 
 // Create output folder if not exists
 const outputDir = path.join(__dirname, 'output');
@@ -86,7 +106,7 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
         console.log("No public parent solutions found for the given IDs.");
         return;
         }
-
+        console,log("publicParentSolutions",publicParentSolutions)  
         // Map for quick lookup by _id string
         const publicParentMap = {};
         publicParentSolutions.forEach(sol => {
@@ -112,7 +132,7 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
         if (!privateSolutionParentMap[parentIdStr]) privateSolutionParentMap[parentIdStr] = [];
         privateSolutionParentMap[parentIdStr].push(sol._id);
         });
-        console.log("privateSolutionIds", privateSolutionIds);
+      
         // 3. Fetch projects where:
         // solutionId in privateSolutionIds
         // isAPrivateProgram: true
@@ -133,19 +153,20 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
             console.log("No projects found to update for the given criteria.");
             return;
         }
-        console.log('projectsToUpdate',projectsToUpdate)
+       
         const chunks = _.chunk(projectsToUpdate, chunkSize);
         let duplicateErrorProjectIds = [];
 
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         const chunk = chunks[chunkIndex];
+           
 
         // Fetch full project documents for this chunk
         const projectIdsInChunk = chunk.map(p => p._id);
         const fullProjects = await db.collection('projects').find({
             _id: { $in: projectIdsInChunk }
         }).toArray();
-
+        let solutionsForCleanup = [];
         for (const project of fullProjects) {
             const solIdStr = project.solutionId.toString();
 
@@ -168,7 +189,46 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
                 console.warn(`Public parent solution details not found for id ${parentSolutionIdStr}`);
                 continue;
             }
+           
+
+            // ---------- TARGETING CHECK ----------
+            let targeted = false;
+
+            // 1️⃣ Check scope.entityType and entities
+            if (parentSolution.scope && project.userProfile && Array.isArray(project.userProfile.userLocations)) {
+                const { entityType, entities } = parentSolution.scope;
+
+                const locationMatch = project.userProfile.userLocations.some(loc =>
+                loc.type === entityType && entities.includes(loc.id)
+                );
+                
+                if (locationMatch) {
+                // 2️⃣ Check profileUserTypes subType
+                if (Array.isArray(project.userProfile.profileUserTypes)) {
+                    const subtypeMatch = project.userProfile.profileUserTypes.some(p =>
+                    ALLOWED_SUBTYPES.includes(p.subType)
+                    );
+
+                    if (subtypeMatch) {
+                    targeted = true;
+                    }
+                }
+                }
+            }
+            
+            // targeted = false
+            if (!targeted) {
+                console.log(`Skipping project ${project._id} - not targeted`);
+                continue; // Skip update
+            }
+
+            // If targeted, push current solutionId to cleanup list
+            solutionsForCleanup.push(project.solutionId);
+
+            // ---------- UPDATE PROJECT ----------
+
             try {
+               
                     const updateDoc = {
                     $set: {
                         solutionId: parentSolution._id,
@@ -199,6 +259,7 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
                     );
 
                     updatedProjectIds.push(project._id.toString());
+                    
 
                 } catch (error) {
                     if (error.code === 11000) { // duplicate key
@@ -211,10 +272,45 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
                     continue;
                 }
             }
+            let programIds
+            // After project updates
+            if (solutionsForCleanup.length > 0) {
+                console.log(`Found ${solutionsForCleanup.length} solutions for cleanup`);
+
+                // Fetch solutions and validate isAPrivateProgram = true
+                const solutions = await db.collection('solutions').find({
+                    _id: { $in: solutionsForCleanup.map(id => ObjectId(id)) },
+                    isAPrivateProgram: true
+                },
+                {
+                    projection: { _id: 1, programId: 1 }
+                }).toArray();
+
+                if (solutions.length > 0) {
+                    // Extract unique programIds
+                    programIds = [...new Set(solutions.map(s => s.programId).filter(Boolean))];
+
+                    console.log(`Deleting ${solutions.length} solutions and ${programIds.length} programs`);
+                    
+                    // Delete solutions
+                    await db.collection('solutions').deleteMany({
+                        _id: { $in: solutions.map(s => s._id) }
+                    });
+
+                    // Delete programs
+                    if (programIds.length > 0) {
+                        await db.collection('programs').deleteMany({
+                            _id: { $in: programIds }
+                        });
+                    }
+                }
+            }
+
+
             // Write updated project IDs to a file
             fs.writeFileSync(
                 path.join(outputDir, `updatedProjects_${timestamp}.json`),
-                JSON.stringify({ updatedProjectIds, duplicateErrorProjectIds }, null, 2)
+                JSON.stringify({ updatedProjectIds, duplicateErrorProjectIds,removedPrivateSolutions: solutionsForCleanup,removedPrivatePrograms: programIds  }, null, 2)
             );
         }
 
@@ -255,7 +351,7 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
 
             // Check eligibility
             let eligible = await checkCertificateEligibility(project);
-            
+           
             if (!eligible) {
             certificateResults.push({
                 projectId: project._id,
@@ -283,7 +379,7 @@ const inputParentSolutionIds = inputData.solutionIds.map(id => id.trim());
             }
         }
         }
-        console.log("certificateResults",certificateResults)
+        
         // Write updated project IDs to a file
       
         fs.writeFileSync(
