@@ -301,7 +301,6 @@ inputParentSolutionIds = inputData.solutionIds.map((id) => id.trim());
             }
           }
 
-          // targeted = false
           if (!targeted) {
             console.log(`Skipping project ${project._id} - not targeted`);
             continue; // Skip update
@@ -358,14 +357,6 @@ inputParentSolutionIds = inputData.solutionIds.map((id) => id.trim());
 
           // -------- Post-process entityInformation --------
           if (project.entityInformation) {
-            // Clean hierarchy → drop items with missing id/code or parentId=null
-            if (Array.isArray(project.entityInformation.hierarchy)) {
-              project.entityInformation.hierarchy =
-                project.entityInformation.hierarchy.filter(
-                  (h) => (h.id || h.code) && h.parentId !== null
-                );
-            }
-
             // If entityInformation._id exists → set project.entityId
             if (project.entityInformation._id) {
               project.entityId = project.entityInformation._id;
@@ -375,16 +366,13 @@ inputParentSolutionIds = inputData.solutionIds.map((id) => id.trim());
           // ---------- NEW: userRoleInformation ----------
           const userRoleInformation = {};
           let role;
-            // populate location identifiers by rule (school = code, others = id)
-          ["district", "school", "cluster", "state", "block"].forEach(
-            (type) => {
-              const match = userLocs.find((loc) => loc.type === type);
-              if (match) {
-                userRoleInformation[type] =
-                  type === "school" ? match.code : match.id;
-              }
+
+          userLocs.forEach((loc) => {
+            if (loc.type) {
+              userRoleInformation[loc.type] =
+                loc.type === "school" ? loc.code : loc.id;
             }
-          );
+          });
 
           // populate role from profileUserTypes
           if (Array.isArray(project.userProfile?.profileUserTypes)) {
@@ -427,6 +415,7 @@ inputParentSolutionIds = inputData.solutionIds.map((id) => id.trim());
                 userRoleInformation: userRoleInformation || null,
                 userRole: role || null,
                 entityId: project.entityId || null,
+                migratedFromPrivateProject: true,
               },
             };
 
