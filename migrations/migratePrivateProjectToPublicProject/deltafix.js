@@ -13448,52 +13448,52 @@ let prodConnection, backupConnection;
     let restoredSolutions = [];
 
     // --- Stage 3: Restore Programs ---
-    // if (programIdsToRestore.size > 0) {
-    //   const programDocs = await backupDb
-    //     .collection("programs")
-    //     .find({
-    //       _id: {
-    //         $in: Array.from(programIdsToRestore).map((id) => ObjectId(id)),
-    //       },
-    //     })
-    //     .toArray();
+    if (programIdsToRestore.size > 0) {
+      const programDocs = await backupDb
+        .collection("programs")
+        .find({
+          _id: {
+            $in: Array.from(programIdsToRestore).map((id) => ObjectId(id)),
+          },
+        })
+        .toArray();
 
-    //   const progChunks = _.chunk(programDocs, CHUNK_SIZE);
-    //   for (const batch of progChunks) {
-    //     if (batch.length) {
-    //       await prodDb
-    //         .collection("programs")
-    //         .insertMany(batch, { ordered: false })
-    //         .catch(() => {});
-    //       restoredPrograms.push(...batch.map((p) => p._id.toString()));
-    //       console.log(`✅ Inserted ${batch.length} programs`);
-    //     }
-    //   }
-    // }
+      const progChunks = _.chunk(programDocs, CHUNK_SIZE);
+      for (const batch of progChunks) {
+        if (batch.length) {
+          await prodDb
+            .collection("programs")
+            .insertMany(batch, { ordered: false })
+            .catch(() => {});
+          restoredPrograms.push(...batch.map((p) => p._id.toString()));
+          console.log(`✅ Inserted ${batch.length} programs`);
+        }
+      }
+    }
 
     // --- Stage 4: Restore Solutions ---
-    // if (solutionIdsToRestore.size > 0) {
-    //   const solDocs = await backupDb
-    //     .collection("solutions")
-    //     .find({
-    //       _id: {
-    //         $in: Array.from(solutionIdsToRestore).map((id) => ObjectId(id)),
-    //       },
-    //     })
-    //     .toArray();
+    if (solutionIdsToRestore.size > 0) {
+      const solDocs = await backupDb
+        .collection("solutions")
+        .find({
+          _id: {
+            $in: Array.from(solutionIdsToRestore).map((id) => ObjectId(id)),
+          },
+        })
+        .toArray();
 
-    //   const solChunksToInsert = _.chunk(solDocs, CHUNK_SIZE);
-    //   for (const batch of solChunksToInsert) {
-    //     if (batch.length) {
-    //       await prodDb
-    //         .collection("solutions")
-    //         .insertMany(batch, { ordered: false })
-    //         .catch(() => {});
-    //       restoredSolutions.push(...batch.map((s) => s._id.toString()));
-    //       console.log(`✅ Inserted ${batch.length} solutions`);
-    //     }
-    //   }
-    // }
+      const solChunksToInsert = _.chunk(solDocs, CHUNK_SIZE);
+      for (const batch of solChunksToInsert) {
+        if (batch.length) {
+          await prodDb
+            .collection("solutions")
+            .insertMany(batch, { ordered: false })
+            .catch(() => {});
+          restoredSolutions.push(...batch.map((s) => s._id.toString()));
+          console.log(`✅ Inserted ${batch.length} solutions`);
+        }
+      }
+    }
 
     // --- Stage 5: Write delta fix output file ---
     const output = {
