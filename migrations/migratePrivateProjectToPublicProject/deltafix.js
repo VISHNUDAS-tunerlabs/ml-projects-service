@@ -6,16 +6,15 @@
 const path = require("path");
 const fs = require("fs");
 const { MongoClient, ObjectId } = require("mongodb");
+const _ = require("lodash");
 require("dotenv").config({ path: path.join(__dirname, "../../.env") });
 
 const mongoUrl = process.env.MONGODB_URL; // prod
-const backupMongoUrl = process.env.MONGODB_BACKUP_URL; // backup
 
 const prodDbName = mongoUrl.split("/").pop();
-const backupDbName = backupMongoUrl.split("/").pop();
+const backupDbName = "sl-prod-backup";
 
 const urlProd = mongoUrl.split(prodDbName)[0];
-const urlBackup = backupMongoUrl.split(backupDbName)[0];
 
 // add your solutionIds here
 const allSolutionIds = [
@@ -13383,7 +13382,6 @@ const allSolutionIds = [
 const CHUNK_SIZE = 500;
 
 let prodConnection, backupConnection;
-
 (async () => {
   try {
     prodConnection = await MongoClient.connect(urlProd, {
@@ -13392,7 +13390,7 @@ let prodConnection, backupConnection;
     const prodDb = prodConnection.db(prodDbName);
     console.log("✅ Connected to PROD DB");
 
-    backupConnection = await MongoClient.connect(urlBackup, {
+    backupConnection = await MongoClient.connect(urlProd, {
       useUnifiedTopology: true,
     });
     const backupDb = backupConnection.db(backupDbName);
@@ -13402,20 +13400,21 @@ let prodConnection, backupConnection;
     let programIdsToRestore = new Set();
 
     // --- Stage 1: Find which solutionIds actually have projects ---
-    for (let i = 0; i < allSolutionIds.length; i += CHUNK_SIZE) {
-      const chunk = allSolutionIds
-        .slice(i, i + CHUNK_SIZE)
-        .map((id) => ObjectId(id));
+    const solChunks = _.chunk(allSolutionIds, CHUNK_SIZE);
 
-      const projects = await prodDb
+    for (const chunk of solChunks) {
+      const objectIds = chunk.map((id) => ObjectId(id));
+      const projects = await backupDb
         .collection("projects")
-        .find({ solutionId: { $in: chunk } }, { projection: { solutionId: 1 } })
+        .find(
+          { solutionId: { $in: objectIds } },
+          { projection: { solutionId: 1 } }
+        )
         .toArray();
 
-      if (projects.length === 0) continue;
-
-      const solIds = projects.map((p) => p.solutionId.toString());
-      solIds.forEach((id) => solutionIdsToRestore.add(id));
+      projects.forEach((p) =>
+        solutionIdsToRestore.add(p.solutionId.toString())
+      );
     }
 
     console.log(
@@ -13444,51 +13443,70 @@ let prodConnection, backupConnection;
 
     console.log(`📌 Programs to restore: ${programIdsToRestore.size}`);
 
-    // --- Stage 3: Restore Programs ---
-    if (programIdsToRestore.size > 0) {
-      const programDocs = await backupDb
-        .collection("programs")
-        .find({
-          _id: {
-            $in: Array.from(programIdsToRestore).map((id) => ObjectId(id)),
-          },
-        })
-        .toArray();
+    let restoredPrograms = [];
+    let restoredSolutions = [];
 
-      for (let i = 0; i < programDocs.length; i += CHUNK_SIZE) {
-        const batch = programDocs.slice(i, i + CHUNK_SIZE);
-        if (batch.length) {
-          await prodDb
-            .collection("programs")
-            .insertMany(batch, { ordered: false })
-            .catch(() => {});
-          console.log(`✅ Inserted ${batch.length} programs`);
-        }
-      }
-    }
+    // --- Stage 3: Restore Programs ---
+    // if (programIdsToRestore.size > 0) {
+    //   const programDocs = await backupDb
+    //     .collection("programs")
+    //     .find({
+    //       _id: {
+    //         $in: Array.from(programIdsToRestore).map((id) => ObjectId(id)),
+    //       },
+    //     })
+    //     .toArray();
+
+    //   const progChunks = _.chunk(programDocs, CHUNK_SIZE);
+    //   for (const batch of progChunks) {
+    //     if (batch.length) {
+    //       await prodDb
+    //         .collection("programs")
+    //         .insertMany(batch, { ordered: false })
+    //         .catch(() => {});
+    //       restoredPrograms.push(...batch.map((p) => p._id.toString()));
+    //       console.log(`✅ Inserted ${batch.length} programs`);
+    //     }
+    //   }
+    // }
 
     // --- Stage 4: Restore Solutions ---
-    if (solutionIdsToRestore.size > 0) {
-      const solDocs = await backupDb
-        .collection("solutions")
-        .find({
-          _id: {
-            $in: Array.from(solutionIdsToRestore).map((id) => ObjectId(id)),
-          },
-        })
-        .toArray();
+    // if (solutionIdsToRestore.size > 0) {
+    //   const solDocs = await backupDb
+    //     .collection("solutions")
+    //     .find({
+    //       _id: {
+    //         $in: Array.from(solutionIdsToRestore).map((id) => ObjectId(id)),
+    //       },
+    //     })
+    //     .toArray();
 
-      for (let i = 0; i < solDocs.length; i += CHUNK_SIZE) {
-        const batch = solDocs.slice(i, i + CHUNK_SIZE);
-        if (batch.length) {
-          await prodDb
-            .collection("solutions")
-            .insertMany(batch, { ordered: false })
-            .catch(() => {});
-          console.log(`✅ Inserted ${batch.length} solutions`);
-        }
-      }
-    }
+    //   const solChunksToInsert = _.chunk(solDocs, CHUNK_SIZE);
+    //   for (const batch of solChunksToInsert) {
+    //     if (batch.length) {
+    //       await prodDb
+    //         .collection("solutions")
+    //         .insertMany(batch, { ordered: false })
+    //         .catch(() => {});
+    //       restoredSolutions.push(...batch.map((s) => s._id.toString()));
+    //       console.log(`✅ Inserted ${batch.length} solutions`);
+    //     }
+    //   }
+    // }
+
+    // --- Stage 5: Write delta fix output file ---
+    const output = {
+      solutionIds: Array.from(solutionIdsToRestore),
+      programIds: Array.from(programIdsToRestore),
+      count: {
+        solutions: solutionIdsToRestore.size,
+        programs: programIdsToRestore.size,
+      },
+    };
+
+    const outFile = path.join(__dirname, "deltafixoutput.json");
+    fs.writeFileSync(outFile, JSON.stringify(output, null, 2));
+    console.log(`📄 Delta fix output written to ${outFile}`);
 
     console.log("🎉 Restore complete!");
   } catch (err) {
