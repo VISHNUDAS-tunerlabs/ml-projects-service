@@ -12,7 +12,7 @@ require("dotenv").config({ path: path.join(__dirname, "../../.env") });
 const mongoUrl = process.env.MONGODB_URL; // prod
 
 const prodDbName = mongoUrl.split("/").pop();
-const backupDbName = "sl-prod-backup";
+const backupDbName = "sl-prodbackup19aug";
 
 const urlProd = mongoUrl.split(prodDbName)[0];
 
@@ -13404,7 +13404,7 @@ let prodConnection, backupConnection;
 
     for (const chunk of solChunks) {
       const objectIds = chunk.map((id) => ObjectId(id));
-      const projects = await backupDb
+      const projects = await prodDb
         .collection("projects")
         .find(
           { solutionId: { $in: objectIds } },
@@ -13415,6 +13415,7 @@ let prodConnection, backupConnection;
       projects.forEach((p) =>
         solutionIdsToRestore.add(p.solutionId.toString())
       );
+      console.log("projects : ", projects);
     }
 
     console.log(
