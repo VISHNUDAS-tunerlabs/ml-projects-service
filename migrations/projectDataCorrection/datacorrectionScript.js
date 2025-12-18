@@ -165,7 +165,7 @@ const componentUserPrivateProjects = {};
 
 for (const [componentId, componentData] of Object.entries(output.components)) {
   const userMap = {};
-
+console.log("componentData-----------------#########", componentData)
   componentData.privateSolutions.forEach(solution => {
     solution.projects.forEach(project => {
       if (!project.userId) return;
@@ -208,7 +208,9 @@ const skippedComponents = [];   // track skipped components
 
 for (const [componentId, users] of Object.entries(componentUserPrivateProjects)) {
 
-    console.log("componentUserPrivateProjects", componentUserPrivateProjects    )
+    console.log("componentUserPrivateProjects@@@@@@@@@@@@@@@@@@@@@@@", componentUserPrivateProjects    )
+
+
 
     const componentSolution = await db.collection("solutions").findOne(
     {
@@ -284,6 +286,54 @@ for (const [componentId, users] of Object.entries(componentUserPrivateProjects))
   }
 }
 console.log("finalResult", JSON.stringify(finalResult, null, 2));
+
+
+const summaryMap = {};
+
+for (const entry of finalResult) {
+  const { componentId, evaluatedPrivateProjects } = entry;
+
+  if (!summaryMap[componentId]) {
+    summaryMap[componentId] = {
+      componentId,
+      projectsCreatedDueToBug: []
+    };
+  }
+
+  evaluatedPrivateProjects.forEach(p => {
+    if (p.targeted === true) {
+      summaryMap[componentId].projectsCreatedDueToBug.push(p.projectId);
+    }
+  });
+}
+const summary = Object.values(summaryMap)
+  .filter(c => c.projectsCreatedDueToBug.length > 0);
+const combinedOutput = {
+  finalResult,
+  summary
+};
+
+const outputPath = path.join(
+  output_dir,
+  `private_project_bug_analysis_${Date.now()}.json`
+);
+
+fs.writeFileSync(
+  outputPath,
+  JSON.stringify(combinedOutput, null, 2),
+  "utf8"
+);
+
+console.log("✅ Combined output written:", outputPath);
+
+
+
+
+
+
+
+
+
 function isProjectTargeted(solution, userRoleInformation) {
 
   /* ---------------- HARD FALSE CHECKS ---------------- */
@@ -368,7 +418,7 @@ console.log("roleMatched------------->", roleMatched);
 
         const output_path = path.join(
         output_dir,
-        `private_program_data_${timestamp}.json`
+        `program_private_project_data_${timestamp}.json`
         );
 
         fs.writeFileSync(output_path, JSON.stringify(output, null, 2), "utf8");
