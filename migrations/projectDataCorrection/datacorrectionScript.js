@@ -57,7 +57,7 @@
         { _id: programId },
         { projection: { components: 1, name: 1 } }
         );
-        console.log("program ", program);
+        // console.log("program ", program);
         if (!program) {
         console.error("❌ Program not found:", programId.toHexString());
         process.exit(1);
@@ -165,7 +165,7 @@ const componentUserPrivateProjects = {};
 
 for (const [componentId, componentData] of Object.entries(output.components)) {
   const userMap = {};
-console.log("componentData-----------------#########", componentData)
+// console.log("componentData-----------------#########", componentData)
   componentData.privateSolutions.forEach(solution => {
     solution.projects.forEach(project => {
       if (!project.userId) return;
@@ -186,7 +186,7 @@ console.log("componentData-----------------#########", componentData)
     componentUserPrivateProjects[componentId] = Object.values(userMap);
   }
 }
-        console.log("componentUserPrivateProjects", componentUserPrivateProjects)
+        // console.log("componentUserPrivateProjects", componentUserPrivateProjects)
 
         const aggPath = path.join(
   output_dir,
@@ -199,7 +199,7 @@ fs.writeFileSync(
   "utf8"
 );
 
-console.log("📄 Component-wise user private projects written to:", aggPath);
+// console.log("📄 Component-wise user private projects written to:", aggPath);
 
 
 const finalResult = [];
@@ -208,7 +208,7 @@ const skippedComponents = [];   // track skipped components
 
 for (const [componentId, users] of Object.entries(componentUserPrivateProjects)) {
 
-    console.log("componentUserPrivateProjects@@@@@@@@@@@@@@@@@@@@@@@", componentUserPrivateProjects    )
+    // console.log("componentUserPrivateProjects@@@@@@@@@@@@@@@@@@@@@@@", componentUserPrivateProjects    )
 
 
 
@@ -234,7 +234,7 @@ for (const [componentId, users] of Object.entries(componentUserPrivateProjects))
   }
 
   for (const userEntry of users) {
-    console.log("Processing user:", userEntry.userId, "for component:", componentId);
+    // console.log("Processing user:", userEntry.userId, "for component:", componentId);
     const { userId, privateProjectIds } = userEntry;
 
     // 1️⃣ Check public project
@@ -243,7 +243,7 @@ for (const [componentId, users] of Object.entries(componentUserPrivateProjects))
       userId,
       isAPrivateProgram: false
     });
-    console.log("Public project for user:", userId, "is", publicProject ? "found" : "not found");
+    // console.log("Public project for user:", userId, "is", publicProject ? "found" : "not found");
     if (publicProject) continue; // ignore user entirely
 
     // 2️⃣ Fetch private projects
@@ -262,13 +262,13 @@ for (const [componentId, users] of Object.entries(componentUserPrivateProjects))
         ignoredMissingRoleInfo.push(project._id.toString());
         continue;
       }
-      console.log("componentSolution",componentSolution )
+      // console.log("componentSolution",componentSolution )
       // 3️⃣ Targeting check
       const targeted = isProjectTargeted(
         componentSolution,
         project.userRoleInformation
       );
-      console.log("targeted",targeted )
+      // console.log("targeted",targeted )
 
       evaluatedProjects.push({
         projectId: project._id.toString(),
@@ -285,7 +285,7 @@ for (const [componentId, users] of Object.entries(componentUserPrivateProjects))
     });
   }
 }
-console.log("finalResult", JSON.stringify(finalResult, null, 2));
+// console.log("finalResult", JSON.stringify(finalResult, null, 2));
 
 
 const summaryMap = {};
@@ -342,7 +342,7 @@ function isProjectTargeted(solution, userRoleInformation) {
   if (!userRoleInformation || typeof userRoleInformation !== "object") return false;
 
   const { scope } = solution;
-  console.log("scop------------e", scope);
+  // console.log("scop------------e", scope);
 
   if (
     !scope.entityType ||
@@ -379,7 +379,7 @@ const solutionRolesNormalized = scope.roles.map(r =>
 const roleMatched = userRolesNormalized.some(role =>
   solutionRolesNormalized.includes(role)
 );
-console.log("roleMatched------------->", roleMatched);
+// console.log("roleMatched------------->", roleMatched);
   if (!roleMatched) return false;
 
   /* ---------------- 2️⃣ ENTITY CHECK ---------------- */
