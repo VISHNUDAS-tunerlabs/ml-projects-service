@@ -530,7 +530,7 @@
       console.log("🗑 Deleting Programs:", programIds);
 
       const programDeleteResult = await db.collection("programs").deleteMany({
-        _id: { $in: programIds , isAPrivateProgram: true}
+        _id: { $in: programIds }, isAPrivateProgram: true
       });
 
       console.log(`✅ Deleted ${programDeleteResult.deletedCount} programs`);
@@ -545,7 +545,7 @@
       console.log("🗑 Deleting Solutions:", solutionIds);
 
       const solutionDeleteResult = await db.collection("solutions").deleteMany({
-        _id: { $in: solutionIds , isAPrivateProgram: true}
+        _id: { $in: solutionIds }, isAPrivateProgram: true
       });
 
       console.log(`✅ Deleted ${solutionDeleteResult.deletedCount} solutions`);
